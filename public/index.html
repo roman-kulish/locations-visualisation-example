@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <link rel="icon" href="favicon.ico">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css"/>
+    <title>Locations Visualisation Example</title>
+    <style>
+        html, body, #map {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script>
+    const southWest = L.latLng(-48.641235447, 112.338953078),
+        northEast = L.latLng(-9.0882278, 179.3643594),
+        bounds = L.latLngBounds(southWest, northEast);
+
+    const map = L.map('map').fitBounds(bounds);
+
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 19,
+        maxBounds: bounds,
+    }).addTo(map);
+
+    map.addLayer(L.svg());
+    map.on('zoom', update);
+
+    const vector = d3.select('#map')
+        .select('svg')
+        .classed('leaflet-zoom-hide', true)
+
+    function update() {
+        vector.selectAll('circle')
+            .attr('cx', function (d) {
+                return map.latLngToLayerPoint(d.LatLng).x
+            })
+            .attr('cy', function (d) {
+                return map.latLngToLayerPoint(d.LatLng).y
+            })
+    }
+
+    function addEvent(lat, lng, r) {
+        const ll = new L.LatLng(lat, lng)
+
+        const circle = vector.append('circle')
+            .datum({LatLng: ll, r})
+            .attr('cx', function (d) {
+                return map.latLngToLayerPoint(d.LatLng).x
+            })
+            .attr('cy', function (d) {
+                return map.latLngToLayerPoint(d.LatLng).y
+            })
+            .attr('r', 0)
+            .attr('fill', "#ffba00")
+            .attr('fill-opacity', 0)
+
+        circle.transition()
+            .duration(500)
+            .attr('fill-opacity', 0.75)
+            .attr('r', 1 + (r * 2));
+
+        d3.timeout(function () {
+            circle.transition()
+                .duration(500)
+                .attr('fill-opacity', 0)
+                .attr('r', 0)
+                .remove()
+        }, 15000)
+    }
+
+    const es = new EventSource('/stream');
+
+    es.onmessage = function (event) {
+        addEvent(...JSON.parse(event.data))
+    }
+    es.onerror = function (err) {
+        console.log(err)
+    }
+</script>
+
+</body>
+</html>
