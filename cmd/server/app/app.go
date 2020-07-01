@@ -103,18 +103,13 @@ func Run() (err error) {
 		return err
 	}
 
-	accBufSIze := pubsub.DefaultReceiveSettings.MaxOutstandingMessages
+	accBufSize := pubsub.DefaultReceiveSettings.MaxOutstandingMessages
 	if n := cfg.Subscription.Settings.MaxOutstandingMessages; n > 0 {
-		accBufSIze = n
+		accBufSize = n
 	}
 
 	br := brocker.New()
-	acc, err := accumulator.New(
-		cfg.CellEdgeLength,
-		cfg.WindowDuration,
-		accBufSIze,
-		resultHandler(br),
-	)
+	acc, err := accumulator.New(cfg.CellEdgeLength, cfg.WindowDuration, accBufSize, resultHandler(br))
 	if err != nil {
 		return err
 	}
@@ -144,7 +139,7 @@ func Run() (err error) {
 	}()
 
 	for i := 0; i < cap(done); i++ {
-		if e := <-done; e != nil {
+		if e := <-done; e != nil && err == nil {
 			err = e
 		}
 		stop.Notify()

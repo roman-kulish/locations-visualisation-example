@@ -13,10 +13,7 @@ import (
 	"github.com/roman-kulish/locations-visualisation-example/cmd/server/app/accumulator"
 )
 
-const (
-	defaultRetryDelay = 5 * time.Second
-	pollRetry         = 200 * time.Millisecond
-)
+const defaultRetryDelay = 5 * time.Second
 
 var ErrServerClosed = errors.New("server: server closed")
 
