@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -19,76 +18,39 @@ import (
 	psServer "github.com/roman-kulish/locations-visualisation-example/cmd/server/app/pubsub"
 )
 
-type shutdownNotifier struct {
-	mu         sync.Mutex
-	inShutdown bool
-	done       chan struct{}
-}
-
-func newShutdownNotifier() *shutdownNotifier {
-	return &shutdownNotifier{
-		done: make(chan struct{}),
-	}
-}
-
-func (sn *shutdownNotifier) Done() <-chan struct{} {
-	return sn.done
-}
-
-func (sn *shutdownNotifier) Notify() {
-	sn.mu.Lock()
-	if sn.inShutdown {
-		sn.mu.Unlock()
-		return
-	}
-
-	sn.inShutdown = true
-	close(sn.done)
-	sn.mu.Unlock()
-}
-
-func startPubSub(cfg *config.Subscription,
-	cl *pubsub.Client, acc *accumulator.Accumulator,
-	shutdownTimeout time.Duration,
-	done chan<- error,
-	stop *shutdownNotifier) error {
-
+func startPubSub(ctx context.Context, cfg *config.Subscription, cl *pubsub.Client, acc *accumulator.Accumulator, shutdownTimeout time.Duration, done chan<- error) {
 	sub := cl.Subscription(cfg.ID)
 	sub.ReceiveSettings = cfg.Settings
 
 	srv := psServer.New(acc, sub, cfg.RetryDelay)
 
 	go func() {
-		<-stop.Done()
+		<-ctx.Done()
 
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		cctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		done <- srv.Shutdown(ctx)
+		done <- srv.Shutdown(cctx)
 	}()
 
-	return srv.Start()
+	done <- srv.Start()
 }
 
-func startServer(cfg *config.Server,
-	br *brocker.Broker,
-	shutdownTimeout time.Duration,
-	done chan<- error,
-	stop *shutdownNotifier) error {
-
-	srv, err := htServer.New(cfg, br)
+func startServer(ctx context.Context, cfg *config.Server, br *brocker.Broker, shutdownTimeout time.Duration, done chan<- error) {
+	srv, err := htServer.New(ctx, cfg, br)
 	if err != nil {
-		return err
+		done <- err
+		return
 	}
 
 	go func() {
-		<-stop.Done()
+		<-ctx.Done()
 
-		ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		cctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
-		done <- srv.Shutdown(ctx)
+		done <- srv.Shutdown(cctx)
 	}()
 
-	return srv.ListenAndServe()
+	done <- srv.ListenAndServe()
 }
 
 // Run is the second "main", which initialises and wires services and starts
@@ -122,27 +84,28 @@ func Run() (err error) {
 	defer cl.Close()
 
 	done := make(chan error, 4)
-	stop := newShutdownNotifier()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-
 		<-quit
-		stop.Notify()
-	}()
-	go func() {
-		done <- startPubSub(&cfg.Subscription, cl, acc, cfg.ShutdownTimeout, done, stop)
-	}()
-	go func() {
-		done <- startServer(&cfg.Server, br, cfg.ShutdownTimeout, done, stop)
+		cancel()
 	}()
 
+	go startPubSub(ctx, &cfg.Subscription, cl, acc, cfg.ShutdownTimeout, done)
+	go startServer(ctx, &cfg.Server, br, cfg.ShutdownTimeout, done)
+
+	var cancelled bool
 	for i := 0; i < cap(done); i++ {
 		if e := <-done; e != nil && err == nil {
 			err = e
 		}
-		stop.Notify()
+		if !cancelled {
+			cancel()
+			cancelled = true
+		}
 	}
 
 	close(done)

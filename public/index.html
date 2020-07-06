@@ -85,9 +85,14 @@
     es.onmessage = function (event) {
         addEvent(...JSON.parse(event.data))
     }
+
     es.onerror = function (err) {
         console.log(err)
     }
+
+    es.addEventListener('close', function() {
+        es.close()
+    });
 </script>
 
 </body>

@@ -1,7 +1,9 @@
 package http
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +33,9 @@ func newStreamHandler(br *brocker.Broker) http.HandlerFunc {
 
 			case <-r.Context().Done():
 				sub.Close()
+				fmt.Fprint(w, "event: close\n")
+				fmt.Fprint(w, "data: \n\n")
+				f.Flush()
 				return
 			}
 		}
@@ -38,7 +43,7 @@ func newStreamHandler(br *brocker.Broker) http.HandlerFunc {
 }
 
 // New creates and returns a new configured instance of HTTP server.
-func New(cfg *config.Server, br *brocker.Broker) (*http.Server, error) {
+func New(ctx context.Context, cfg *config.Server, br *brocker.Broker) (*http.Server, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -50,6 +55,9 @@ func New(cfg *config.Server, br *brocker.Broker) (*http.Server, error) {
 	mux.Handle("/", http.FileServer(http.Dir(dir)))
 
 	srv := http.Server{
+		BaseContext: func(_ net.Listener) context.Context {
+			return ctx
+		},
 		Addr:              cfg.Addr,
 		Handler:           mux,
 		ReadTimeout:       cfg.ReadTimeout,
